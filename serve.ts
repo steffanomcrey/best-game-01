@@ -1,58 +1,68 @@
-// A tiny static server for game/ (Node 22, standard library only), so an entry can be played
-// locally without a build step: `node serve.ts` serves game/ on http://localhost:8080.
-// It sends the MIME types a browser game needs, refuses any path outside game/, and otherwise
-// does nothing clever: this is a development convenience, not a web server for the internet.
+// Starlight Keep's local play server (Node 22, standard library only).
+//
+// `node serve.ts` serves game/ on http://localhost:8080 (or --port <n>), so
+// the game can be played in a desktop browser with no build step. It only
+// serves files from inside game/, sends the content types a browser game
+// needs, and answers 403/404 for anything else. A development convenience,
+// not a server for the internet.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = resolve(fileURLToPath(new URL('./game', import.meta.url)));
-const args = process.argv.slice(2);
-const portIndex = args.indexOf('--port');
-const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
-const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const GAME_ROOT = resolve(fileURLToPath(new URL('./game', import.meta.url)));
 
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.bin': 'application/octet-stream',
-  '.wasm': 'application/wasm',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.txt': 'text/plain; charset=utf-8',
-};
+function portFromArgs(argv) {
+  const at = argv.indexOf('--port');
+  const wanted = at === -1 ? 8080 : Number(argv[at + 1]);
+  return Number.isInteger(wanted) && wanted > 0 && wanted < 65536 ? wanted : 8080;
+}
+
+function contentTypeFor(file) {
+  switch (extname(file).toLowerCase()) {
+    case '.html': return 'text/html; charset=utf-8';
+    case '.js': case '.mjs': return 'text/javascript; charset=utf-8';
+    case '.css': return 'text/css; charset=utf-8';
+    case '.json': return 'application/json; charset=utf-8';
+    case '.png': return 'image/png';
+    case '.jpg': case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.webp': return 'image/webp';
+    case '.svg': return 'image/svg+xml';
+    case '.ico': return 'image/x-icon';
+    case '.woff2': return 'font/woff2';
+    case '.wasm': return 'application/wasm';
+    case '.wav': return 'audio/wav';
+    case '.mp3': return 'audio/mpeg';
+    case '.ogg': return 'audio/ogg';
+    case '.txt': return 'text/plain; charset=utf-8';
+    default: return 'application/octet-stream';
+  }
+}
+
+function resolveInsideGame(requestPath) {
+  const cleaned = requestPath.endsWith('/') ? `${requestPath}index.html` : requestPath;
+  const file = resolve(join(GAME_ROOT, normalize(cleaned)));
+  if (file !== GAME_ROOT && !file.startsWith(GAME_ROOT + sep)) return null;
+  return file;
+}
+
+const port = portFromArgs(process.argv.slice(2));
 
 createServer((request, response) => {
-  const url = new URL(request.url ?? '/', 'http://localhost');
-  let pathname: string;
+  let pathname;
   try {
-    pathname = decodeURIComponent(url.pathname);
+    pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
   } catch {
     response.writeHead(400).end('bad request');
     return;
   }
-  if (pathname.endsWith('/')) pathname += 'index.html';
-  const file = resolve(join(root, normalize(pathname)));
-  if (file !== root && !file.startsWith(root + sep)) {
+  const file = resolveInsideGame(pathname);
+  if (file === null) {
     response.writeHead(403).end('forbidden');
     return;
   }
-  let size: number;
+  let size;
   try {
     const stats = statSync(file);
     if (!stats.isFile()) throw new Error('not a file');
@@ -62,11 +72,11 @@ createServer((request, response) => {
     return;
   }
   response.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+    'content-type': contentTypeFor(file),
     'content-length': size,
     'cache-control': 'no-store',
   });
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
-  console.log(`game/ is on http://localhost:${port}`);
+  console.log(`Starlight Keep is on http://localhost:${port}`);
 });
