@@ -12,16 +12,19 @@ export const ACTION_RESTART = 32;
 export const ACTION_DESELECT = 64;
 
 const SHOP_KEYS = new Map([['Digit1', 'arrow'], ['Digit2', 'frost'], ['Digit3', 'cannon']]);
+const RELIC_KEYS = new Map([['Digit4', 0], ['Digit5', 1], ['Digit6', 2]]);
 
 export function createInput(canvas, toLogical) {
   let actions = 0;
   let shop = null; // tower type picked by a number key, consumed by main
+  let relic = null; // relic card index picked by a number key, consumed by main
   const clicks = []; // queued logical {x,y} clicks
   let mouse = { x: -1, y: -1 };
 
   window.addEventListener('keydown', (event) => {
     if (event.repeat) return;
     if (SHOP_KEYS.has(event.code)) { shop = SHOP_KEYS.get(event.code); event.preventDefault(); return; }
+    if (RELIC_KEYS.has(event.code)) { relic = RELIC_KEYS.get(event.code); event.preventDefault(); return; }
     switch (event.code) {
       case 'Space': case 'Enter': actions |= ACTION_CONFIRM; break;
       case 'KeyP': case 'Escape': actions |= event.code === 'Escape' ? ACTION_DESELECT : ACTION_PAUSE; break;
@@ -47,6 +50,7 @@ export function createInput(canvas, toLogical) {
     mouse() { return mouse; },
     takeClicks() { return clicks.splice(0, clicks.length); },
     takeShop() { const s = shop; shop = null; return s; },
+    takeRelic() { const r = relic; relic = null; return r; },
     takeActions() { const taken = actions; actions = 0; return taken; },
   };
 }

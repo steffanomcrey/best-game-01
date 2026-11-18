@@ -10,7 +10,7 @@ import { createRandom } from './random.js';
 import { createAudio } from './audio.js';
 import { createWorld, EVENT_CANNON, EVENT_FROST, EVENT_KILL, EVENT_LEAK, EVENT_LOSE, EVENT_SHOOT, EVENT_WAVE_CLEAR, EVENT_WIN, autoSpend } from './world.js';
 import { ACTION_CONFIRM, ACTION_DESELECT, ACTION_MUTE, ACTION_PAUSE, ACTION_RESTART, ACTION_SELL, ACTION_UPGRADE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WON } from './render.js';
+import { createRenderer, relicCardAt, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WON } from './render.js';
 import { stageShot } from './shots.js';
 
 const MAX_FRAME = 0.25;
@@ -72,6 +72,8 @@ function runShot(name) {
         score: world.state.score, kills: world.state.kills,
         gold: world.state.gold, coreHp: world.state.coreHp,
         towers: world.state.towers.filter((t) => t.active).length,
+        relics: world.state.relics.slice(),
+        relicOffer: world.state.relicOffer ? world.state.relicOffer.slice() : null,
       };
     }
   }
@@ -119,6 +121,11 @@ function runGame() {
       return;
     }
     if (screen !== SCREEN_PLAY) return;
+    const relicIndex = relicCardAt(world.state, p.x, p.y);
+    if (relicIndex >= 0) {
+      if (world.chooseRelic(relicIndex)) { audio.upgrade(); announce('Relic claimed.'); }
+      return;
+    }
     const hit = sidebarHit(p, world.state);
     if (hit) {
       if (hit.kind === 'shop') { world.state.shop = hit.type; return; }
@@ -152,6 +159,10 @@ function runGame() {
   function handleActions() {
     const shop = input.takeShop();
     if (shop) world.state.shop = shop;
+    const relicPick = input.takeRelic();
+    if (relicPick !== null && screen === SCREEN_PLAY) {
+      if (world.chooseRelic(relicPick)) { audio.upgrade(); announce('Relic claimed.'); }
+    }
     const actions = input.takeActions();
     if (actions & ACTION_MUTE) {
       const muted = audio.toggleMute();
@@ -213,6 +224,8 @@ function runGame() {
       score: world.state.score, kills: world.state.kills,
       gold: world.state.gold, coreHp: world.state.coreHp,
       towers: world.state.towers.filter((t) => t.active).length,
+      relics: world.state.relics.slice(),
+      relicOffer: world.state.relicOffer ? world.state.relicOffer.slice() : null,
     };
     renderer.draw(world.state, screen, best, { muted: audio.muted });
   }

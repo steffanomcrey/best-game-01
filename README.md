@@ -17,6 +17,10 @@ http://localhost:8080) and play with keyboard and mouse.
   road to the crystal. Kills pay gold; clearing a wave pays a bonus.
 - **Upgrade / sell**: click a tower to inspect it, U upgrades it to level 3,
   X sells it back at 70%.
+- **Relics**: clearing a wave drafts 1 of 3 relics (click a card or keys
+  4/5/6): +20% damage, +15% range, +20% fire rate, deeper frost slow,
+  +50% kill gold, or a 5-point core heal. Owned relics show as chips under
+  the top bar and stack for the rest of the run.
 - **Win / lose**: clear wave 10 and slay the Void Tyrant to win. If the
   crystal's 20 health reaches 0, the Keep falls.
 - **Other keys**: P pause, R restart, M mute, Esc deselect.

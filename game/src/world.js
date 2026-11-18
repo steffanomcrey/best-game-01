@@ -4,9 +4,10 @@
 // the caller can play sounds without the world knowing about screens.
 // Nothing here allocates after createWorld returns (pools are fixed).
 import {
-  CORE, CORE_HP, ENEMIES, GRID, HP_PER_WAVE, PATH, SPEED_PER_WAVE,
-  SPAWN_INTERVAL, START_GOLD, TOTAL_WAVES, TOWERS, TOWER_ORDER, UPGRADE,
-  WAVE_CLEAR_BONUS, WAVES, SELL_RATE, WIN_BONUS_PER_CORE_HP, isPathCell,
+  CORE, CORE_HP, ENEMIES, GRID, HP_PER_WAVE, PATH, RELICS, RELIC_ORDER,
+  RELIC_OFFER_SIZE, SPEED_PER_WAVE, SPAWN_INTERVAL, START_GOLD, TOTAL_WAVES,
+  TOWERS, TOWER_ORDER, UPGRADE, WAVE_CLEAR_BONUS, WAVES, SELL_RATE,
+  WIN_BONUS_PER_CORE_HP, isPathCell,
 } from './config.js';
 
 export const EVENT_SHOOT = 1;
@@ -27,19 +28,23 @@ function cellCenter(col, row) {
   return { x: col * GRID.cell + GRID.cell / 2, y: row * GRID.cell + GRID.cell / 2 };
 }
 
-export function towerStats(type, level) {
+export function towerStats(type, level, mods) {
   const def = TOWERS[type];
   const up = level >= 2 ? UPGRADE[level - 1] : null;
   const dmgMul = up ? up.dmgMul : 1;
   const rangeAdd = up ? up.rangeAdd : 0;
+  const m = mods || { dmgMul: 1, rangeMul: 1, rateMul: 1, slowAdd: 0 };
   return {
-    damage: def.damage * dmgMul,
-    range: def.range + rangeAdd,
-    rate: def.rate,
+    damage: def.damage * dmgMul * m.dmgMul,
+    range: (def.range + rangeAdd) * m.rangeMul,
+    rate: def.rate * m.rateMul,
     splash: def.splash || 0,
-    slow: def.slow || 0,
+    slow: def.slow ? Math.min(0.8, def.slow + m.slowAdd) : 0,
     slowTime: def.slowTime || 0,
   };
+}
+export function freshRelicMods() {
+  return { dmgMul: 1, rangeMul: 1, rateMul: 1, slowAdd: 0, goldMul: 1 };
 }
 export function upgradeCost(type, level) {
   if (level >= 3) return null;
@@ -59,7 +64,7 @@ export function createWorld(random) {
     enemies.push({ active: false, type: 'mite', hp: 1, maxHp: 1, x: 0, y: 0, wp: 1, speed: 0, slowUntil: 0, slowFactor: 1, r: 10, gold: 0, leak: 1, dist: 0 });
   }
   for (let i = 0; i < MAX_PROJECTILES; i += 1) {
-    projectiles.push({ active: false, x: 0, y: 0, tx: 0, ty: 0, target: null, speed: 0, damage: 0, splash: 0, slow: 0, slowTime: 0, color: '#fff', kind: 'arrow' });
+    projectiles.push({ active: false, x: 0, y: 0, tx: 0, ty: 0, target: null, owner: null, speed: 0, damage: 0, splash: 0, slow: 0, slowTime: 0, color: '#fff', kind: 'arrow' });
   }
   for (let i = 0; i < MAX_PARTICLES; i += 1) {
     particles.push({ active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, color: '#fff', size: 2 });
@@ -77,6 +82,9 @@ export function createWorld(random) {
     shop: 'arrow', // tower type chosen in the shop
     hover: null, // {col,row} or null
     waveKills: 0,
+    relics: [], // relic ids owned, in pick order
+    relicMods: freshRelicMods(), // live modifiers from owned relics
+    relicOffer: null, // array of relic ids awaiting a pick, or null
   };
   let nextTowerId = 1;
   let time = 0;
@@ -118,6 +126,7 @@ export function createWorld(random) {
     state.coreHp = CORE_HP; state.wave = 0; state.phase = 'build';
     state.elapsed = 0; state.spawnTimer = 0; state.spawnIndex = 0; state.spawnList = [];
     state.selected = null; state.shop = 'arrow'; state.hover = null; state.waveKills = 0;
+    state.relics = []; state.relicMods = freshRelicMods(); state.relicOffer = null;
     time = 0;
   }
 
@@ -162,6 +171,38 @@ export function createWorld(random) {
     return refund;
   }
 
+  // Offer 3 relics the player does not own yet, shuffled with the run's
+  // seeded RNG so a seed always offers the same draft. One offer at a time:
+  // an unclaimed offer simply waits for its pick.
+  function makeRelicOffer() {
+    if (state.relicOffer) return;
+    const pool = RELIC_ORDER.filter((id) => !state.relics.includes(id));
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      const tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp;
+    }
+    if (pool.length) state.relicOffer = pool.slice(0, RELIC_OFFER_SIZE);
+  }
+
+  function chooseRelic(index) {
+    if (!state.relicOffer || index < 0 || index >= state.relicOffer.length) return false;
+    const id = state.relicOffer[index];
+    const def = RELICS[id];
+    state.relics.push(id);
+    state.relicOffer = null;
+    if (def.dmgMul) state.relicMods.dmgMul *= def.dmgMul;
+    if (def.rangeMul) state.relicMods.rangeMul *= def.rangeMul;
+    if (def.rateMul) state.relicMods.rateMul *= def.rateMul;
+    if (def.goldMul) state.relicMods.goldMul *= def.goldMul;
+    if (def.slowAdd) state.relicMods.slowAdd += def.slowAdd;
+    if (def.heal) {
+      state.coreHp = Math.min(CORE_HP, state.coreHp + def.heal);
+      spawnFloat(CORE.x, CORE.y - 60, `+${def.heal} core`, '#4ade80');
+    }
+    spawnParticle(CORE.x, CORE.y, def.color, 18, 140);
+    return true;
+  }
+
   function buildWaveList(wave) {
     const list = [];
     for (const [type, count] of WAVES[wave - 1]) {
@@ -201,28 +242,31 @@ export function createWorld(random) {
     e.r = def.r; e.gold = def.gold; e.leak = def.leak; e.dist = 0;
   }
 
-  function damageEnemy(e, dmg, events) {
+  function damageEnemy(e, dmg, events, owner) {
     e.hp -= dmg;
     if (e.hp > 0) return events;
     e.active = false;
-    state.gold += e.gold;
+    if (owner) owner.kills += 1;
+    const gained = Math.round(e.gold * state.relicMods.goldMul);
+    state.gold += gained;
     state.score += 10;
     state.kills += 1;
     state.waveKills += 1;
     spawnParticle(e.x, e.y, ENEMIES[e.type].color, 12, 130);
-    spawnFloat(e.x, e.y - 14, `+${e.gold}g`, '#f2c94c');
+    spawnFloat(e.x, e.y - 14, `+${gained}g`, '#f2c94c');
     return events | EVENT_KILL;
   }
 
   function fireTower(t, target, events) {
-    const st = towerStats(t.type, t.level);
+    const st = towerStats(t.type, t.level, state.relicMods);
     const p = free(projectiles);
     t.cooldown = 1 / st.rate;
     t.angle = Math.atan2(target.y - t.y, target.x - t.x);
     if (!p) return events;
     p.active = true; p.x = t.x; p.y = t.y;
-    p.tx = target.x; p.ty = target.y; p.target = target;
-    p.speed = t.type === 'cannon' ? 420 : 620;
+    p.tx = target.x; p.ty = target.y; p.target = target; p.owner = t;
+    spawnParticle(t.x, t.y, TOWERS[t.type].color, 2, 60);
+    p.speed = t.type === 'cannon' ? 330 : 430;
     p.damage = st.damage; p.splash = st.splash;
     p.slow = st.slow; p.slowTime = st.slowTime;
     p.color = TOWERS[t.type].color; p.kind = t.type;
@@ -249,7 +293,7 @@ export function createWorld(random) {
       if (!t.active) continue;
       t.cooldown -= dt;
       if (t.cooldown > 0) continue;
-      const st = towerStats(t.type, t.level);
+      const st = towerStats(t.type, t.level, state.relicMods);
       let best = null;
       let bestDist = -1;
       for (const e of enemies) {
@@ -282,10 +326,10 @@ export function createWorld(random) {
               if (!e.active) continue;
               const ex = e.x - tx;
               const ey = e.y - ty;
-              if (ex * ex + ey * ey <= p.splash * p.splash) events = damageEnemy(e, p.damage, events);
+              if (ex * ex + ey * ey <= p.splash * p.splash) events = damageEnemy(e, p.damage, events, p.owner);
             }
           } else {
-            events = damageEnemy(tgt, p.damage, events);
+            events = damageEnemy(tgt, p.damage, events, p.owner);
           }
         }
       } else {
@@ -350,6 +394,7 @@ export function createWorld(random) {
         state.gold += bonus;
         state.score += state.wave * 100;
         spawnFloat(CORE.x, CORE.y - 60, `Wave clear +${bonus}g`, '#4ade80');
+        if (state.wave < TOTAL_WAVES) makeRelicOffer();
         events |= EVENT_WAVE_CLEAR;
         if (state.wave >= TOTAL_WAVES) {
           state.phase = 'won';
@@ -366,7 +411,7 @@ export function createWorld(random) {
   reset();
   return {
     state, reset, placeTower, upgradeTower, sellTower, startWave, step,
-    towerAt, canPlace, towerStats, upgradeCost,
+    towerAt, canPlace, towerStats, upgradeCost, chooseRelic,
   };
 }
 
@@ -381,7 +426,26 @@ export const AUTO_CELLS = [
   { col: 3, row: 6, type: 'arrow' }, { col: 7, row: 2, type: 'arrow' },
   { col: 7, row: 5, type: 'cannon' }, { col: 4, row: 6, type: 'frost' },
   { col: 10, row: 2, type: 'arrow' }, { col: 1, row: 5, type: 'arrow' },
+  { col: 6, row: 0, type: 'arrow' }, { col: 4, row: 3, type: 'frost' },
+  { col: 6, row: 3, type: 'cannon' }, { col: 8, row: 5, type: 'arrow' },
+  { col: 3, row: 8, type: 'arrow' }, { col: 8, row: 8, type: 'cannon' },
+  { col: 11, row: 5, type: 'arrow' }, { col: 11, row: 2, type: 'frost' },
 ];
+// Autopilot relic policy: take the offered relic highest on this fixed
+// preference list (damage first, the heal only when nothing else is left).
+export const RELIC_PREFERENCE = ['emberheart', 'overclock', 'farlens', 'deepchill', 'gilded', 'aegis'];
+export function autoChooseRelic(world) {
+  const offer = world.state.relicOffer;
+  if (!offer) return false;
+  let bestIndex = 0;
+  let bestRank = Infinity;
+  for (let i = 0; i < offer.length; i += 1) {
+    const rank = RELIC_PREFERENCE.indexOf(offer[i]);
+    if (rank < bestRank) { bestRank = rank; bestIndex = i; }
+  }
+  return world.chooseRelic(bestIndex);
+}
+
 export function autoSpend(world) {
   const s = world.state;
   for (const cell of AUTO_CELLS) {

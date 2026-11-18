@@ -94,6 +94,22 @@ export const WAVES = [
 export const SPAWN_INTERVAL = 0.85;
 export const WAVE_CLEAR_BONUS = (wave) => 25 + 5 * wave;
 
+// Relics: clearing a wave offers a choice of 3 relics the player does not
+// own yet; picking one applies its modifier for the rest of the run. The
+// offer waits (it never blocks the next wave) until the player clicks a
+// card or presses 4 / 5 / 6. Modifiers stack multiplicatively where the
+// field is a *Mul, additively where it is an *Add; aegis heals at once.
+export const RELICS = {
+  emberheart: { name: 'Ember Heart', color: '#fb7185', desc: 'All towers deal +20% damage', dmgMul: 1.2 },
+  farlens: { name: 'Far Lens', color: '#a5b4fc', desc: 'All towers gain +15% range', rangeMul: 1.15 },
+  overclock: { name: 'Overclock Sigil', color: '#facc15', desc: 'All towers fire 20% faster', rateMul: 1.2 },
+  deepchill: { name: 'Deep Chill', color: '#7dd3fc', desc: 'Frost slow deepens by +15%', slowAdd: 0.15 },
+  gilded: { name: 'Gilded Sigil', color: '#f2c94c', desc: 'Kills pay +50% gold', goldMul: 1.5 },
+  aegis: { name: 'Aegis Shard', color: '#4ade80', desc: 'Restore 5 core health now', heal: 5 },
+};
+export const RELIC_ORDER = ['emberheart', 'farlens', 'overclock', 'deepchill', 'gilded', 'aegis'];
+export const RELIC_OFFER_SIZE = 3;
+
 export const PALETTE = {
   backdrop: '#0b1026', sky: '#101736', grid: '#1a2350', gridLine: '#232c5e',
   path: '#3b2f6b', pathEdge: '#574a94', core: '#67e8f9', coreGlow: '#22d3ee',
